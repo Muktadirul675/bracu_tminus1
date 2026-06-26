@@ -21,14 +21,6 @@ const unauthorizedCommitmentPattern =
 const thirdPartyRedirectPattern =
   /(https?:\/\/|www\.|telegram|whatsapp|facebook|messenger|gmail|outside support|third[- ]party)/i;
 
-const suspiciousCaseTypes = new Set<AnalyzeTicketResponse["case_type"]>([
-  "wrong_transfer",
-  "payment_failed",
-  "refund_request",
-  "duplicate_payment",
-  "phishing_or_social_engineering"
-]);
-
 const collapseWhitespace = (value: string): string => value.trim().replace(/\s+/g, " ");
 
 const containsCredentialRequest = (text: string): boolean => {
@@ -89,15 +81,20 @@ export const enforceSafetyAndPolicy = (
     (txn) => txn.transaction_id === candidate.relevant_transaction_id
   );
 
-  const disputeOrRisk =
-    suspiciousCaseTypes.has(candidate.case_type) ||
-    candidate.case_type === "merchant_settlement_delay" ||
-    candidate.case_type === "agent_cash_in_issue";
   const ambiguous = candidate.evidence_verdict === "insufficient_data";
   const highValue = (relevantTransaction?.amount ?? 0) >= HIGH_VALUE_THRESHOLD;
   const securityRisk = candidate.case_type === "phishing_or_social_engineering";
+  const disputeCase =
+    candidate.case_type === "wrong_transfer" || candidate.case_type === "duplicate_payment";
+  const contestedRefund =
+    candidate.case_type === "refund_request" &&
+    (candidate.severity !== "low" || candidate.evidence_verdict !== "consistent");
+  const agentPendingRisk =
+    candidate.case_type === "agent_cash_in_issue" &&
+    (relevantTransaction?.status === "pending" || relevantTransaction?.status === "failed");
 
-  const mustEscalate = disputeOrRisk || ambiguous || highValue || securityRisk;
+  const mustEscalate =
+    disputeCase || contestedRefund || agentPendingRisk || ambiguous || highValue || securityRisk;
 
   const nextActionUnsafe =
     !nextAction ||

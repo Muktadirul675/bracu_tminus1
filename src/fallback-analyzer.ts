@@ -17,8 +17,20 @@ const latestOf = (entries: TransactionHistoryEntry[]): TransactionHistoryEntry |
   return [...entries].sort((a, b) => timestampWeight(b.timestamp) - timestampWeight(a.timestamp))[0] ?? null;
 };
 
+const extractMentionedAmount = (text: string): number | null => {
+  const normalized = text.replace(/[,]/g, "");
+  const match = normalized.match(/(?:^|\D)(\d{2,7}(?:\.\d{1,2})?)(?:\D|$)/);
+  if (!match?.[1]) return null;
+  const value = Number.parseFloat(match[1]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+};
+
+const hasCounterpartyIdentifier = (text: string): boolean => /\+?\d{10,14}/.test(text);
+
 const detectCaseType = (input: AnalyzeTicketRequest): AnalyzeTicketResponse["case_type"] => {
   const text = input.complaint.toLowerCase();
+  const settlementSignal = /(settlement|payout|sales.*not.*settled|not been settled|batch status|next[- ]day window)/i;
 
   if (
     isInText(
@@ -28,10 +40,16 @@ const detectCaseType = (input: AnalyzeTicketRequest): AnalyzeTicketResponse["cas
   ) {
     return "phishing_or_social_engineering";
   }
-  if (isInText(text, /(wrong transfer|wrong number|sent to wrong|ভুল নম্বর|ভুলে পাঠ|ভুল ট্রান্সফার)/i)) {
+  if (
+    isInText(text, /(wrong transfer|wrong number|wrong person|sent to wrong|ভুল নম্বর|ভুলে পাঠ|ভুল ট্রান্সফার)/i) ||
+    (isInText(text, /(sent|send|transfer|পাঠিয়েছি|পাঠিয়েছি|পাঠিয়েছি)/i) &&
+      isInText(text, /(didn't get|did not get|not receive|not received|পায়নি|পায়নি|পাইনি)/i))
+  ) {
     return "wrong_transfer";
   }
-  if (isInText(text, /(duplicate|double charged|charged twice|two times|দুইবার|ডুপ্লিকেট)/i)) {
+  if (
+    isInText(text, /(duplicate|double charged|charged twice|deducted twice|deducted two times|two times|দুইবার|ডুপ্লিকেট)/i)
+  ) {
     return "duplicate_payment";
   }
   if (
@@ -42,17 +60,20 @@ const detectCaseType = (input: AnalyzeTicketRequest): AnalyzeTicketResponse["cas
   ) {
     return "payment_failed";
   }
-  if (
-    input.user_type === "merchant" ||
-    isInText(text, /(merchant|settlement|payout|merchant portal|ব্যবসায়ী|মার্চেন্ট)/i)
-  ) {
-    return "merchant_settlement_delay";
-  }
   if (input.user_type === "agent" || isInText(text, /(agent|cash[\s_-]?in|ক্যাশ ইন|এজেন্ট)/i)) {
     return "agent_cash_in_issue";
   }
   if (isInText(text, /(refund|return money|reversal|chargeback|ফেরত|রিফান্ড)/i)) {
     return "refund_request";
+  }
+  if (
+    isInText(text, /merchant|merchant portal|ব্যবসায়ী|মার্চেন্ট/i) &&
+    (input.user_type === "merchant" || settlementSignal.test(text))
+  ) {
+    return "merchant_settlement_delay";
+  }
+  if (settlementSignal.test(text)) {
+    return "merchant_settlement_delay";
   }
   return "other";
 };
@@ -81,7 +102,23 @@ const pickRelevantTransaction = (
   if (exact) return exact;
 
   if (caseType === "wrong_transfer") {
-    return latestOf(history.filter((txn) => txn.type === "transfer"));
+    const transfers = history.filter((txn) => txn.type === "transfer");
+    if (transfers.length === 0) return null;
+
+    const mentionedAmount = extractMentionedAmount(input.complaint);
+    if (mentionedAmount !== null) {
+      const amountMatches = transfers.filter((txn) => Math.abs(txn.amount - mentionedAmount) < 0.01);
+      if (amountMatches.length === 1) {
+        return amountMatches[0] ?? null;
+      }
+      if (amountMatches.length > 1) {
+        if (!hasCounterpartyIdentifier(input.complaint)) {
+          return null;
+        }
+        return latestOf(amountMatches);
+      }
+    }
+    return latestOf(transfers);
   }
   if (caseType === "payment_failed") {
     return latestOf(history.filter((txn) => txn.status === "failed" || txn.status === "pending" || txn.type === "payment"));
@@ -105,6 +142,8 @@ const pickRelevantTransaction = (
     return latestOf(duplicates);
   }
 
+  if (caseType === "other") return null;
+
   return latestOf(history);
 };
 
@@ -116,7 +155,17 @@ const evidenceFor = (
   if (!relevant) return "insufficient_data";
 
   if (caseType === "wrong_transfer") {
-    return relevant.type === "transfer" && relevant.status === "completed" ? "consistent" : "inconsistent";
+    if (relevant.type !== "transfer") return "inconsistent";
+    if (relevant.status !== "completed") return "inconsistent";
+
+    const priorTransfersToSameRecipient = history.filter((txn) => {
+      if (txn.type !== "transfer") return false;
+      if (txn.counterparty !== relevant.counterparty) return false;
+      return timestampWeight(txn.timestamp) < timestampWeight(relevant.timestamp);
+    }).length;
+
+    if (priorTransfersToSameRecipient >= 2) return "inconsistent";
+    return "consistent";
   }
   if (caseType === "payment_failed") {
     if (relevant.status === "failed" || relevant.status === "pending") return "consistent";
@@ -124,8 +173,14 @@ const evidenceFor = (
     return "insufficient_data";
   }
   if (caseType === "refund_request") {
-    if (relevant.type === "refund" && relevant.status === "completed") return "consistent";
     if (relevant.status === "reversed") return "inconsistent";
+    if (relevant.type === "refund" && relevant.status === "completed") return "consistent";
+    if (
+      (relevant.type === "payment" || relevant.type === "transfer") &&
+      relevant.status === "completed"
+    ) {
+      return "consistent";
+    }
     return "insufficient_data";
   }
   if (caseType === "duplicate_payment") {
@@ -166,8 +221,16 @@ const severityFor = (
   if (caseType === "phishing_or_social_engineering") return "critical";
   if (amount >= 100_000) return "critical";
 
-  if (caseType === "wrong_transfer" || caseType === "duplicate_payment" || caseType === "payment_failed") {
-    return amount >= 10_000 ? "high" : "medium";
+  if (caseType === "wrong_transfer") {
+    return amount >= 5_000 ? "high" : "medium";
+  }
+
+  if (caseType === "duplicate_payment") {
+    return "high";
+  }
+
+  if (caseType === "payment_failed") {
+    return "high";
   }
 
   if (caseType === "refund_request") {
@@ -175,11 +238,16 @@ const severityFor = (
     return evidenceVerdict === "insufficient_data" ? "medium" : "low";
   }
 
-  if (caseType === "merchant_settlement_delay" || caseType === "agent_cash_in_issue") {
+  if (caseType === "merchant_settlement_delay") {
     return amount >= 20_000 ? "high" : "medium";
   }
 
-  return evidenceVerdict === "insufficient_data" ? "medium" : "low";
+  if (caseType === "agent_cash_in_issue") {
+    if (relevant?.status === "pending" || relevant?.status === "failed") return "high";
+    return amount >= 20_000 ? "high" : "medium";
+  }
+
+  return "low";
 };
 
 export const runFallbackAnalysis = (
@@ -194,13 +262,19 @@ export const runFallbackAnalysis = (
   const department = mapDepartment(caseType, severity, input.user_type, input.complaint);
 
   const highValue = (relevant?.amount ?? 0) >= 25_000;
+  const disputedCase = caseType === "wrong_transfer" || caseType === "duplicate_payment";
+  const contestedRefund =
+    caseType === "refund_request" && (severity !== "low" || evidenceVerdict !== "consistent");
+  const agentPendingIssue =
+    caseType === "agent_cash_in_issue" && (relevant?.status === "pending" || relevant?.status === "failed");
+
   const humanReviewRequired =
     caseType === "phishing_or_social_engineering" ||
-    caseType === "wrong_transfer" ||
-    caseType === "refund_request" ||
+    disputedCase ||
+    contestedRefund ||
+    agentPendingIssue ||
     evidenceVerdict === "insufficient_data" ||
     highValue ||
-    severity === "high" ||
     severity === "critical";
 
   const summaryTransactionPart = relevant

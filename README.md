@@ -141,6 +141,44 @@ If AI output violates policy, the service automatically replaces unsafe text wit
 - Deterministic fallback analyzer when provider is unavailable or times out
 - Defensive global error handling to prevent process crashes from malformed input
 
+## Testing Guide (What to do next)
+
+### 1) Basic local checks
+
+```bash
+npm run typecheck
+npm run build
+```
+
+### 2) Start API locally
+
+```bash
+npm run dev
+```
+
+Then test manually:
+
+```bash
+curl -s http://localhost:8000/health
+```
+
+### 3) Run official sample-case pack automatically
+
+Use the provided sample JSON from organizers and run:
+
+```bash
+npm run test:samples -- /path/to/SUST_Preli_Sample_Cases.json
+```
+
+The runner will:
+- call `POST /analyze-ticket` for all sample cases
+- validate response schema
+- compare key functional fields with expected outputs
+- check core safety constraints in generated text
+- print PASS/FAIL summary
+
+> Note: sample cases are reference cases only. Hidden tests may differ.
+
 ## cURL examples
 
 Health:
