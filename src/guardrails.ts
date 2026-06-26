@@ -21,13 +21,13 @@ const unauthorizedCommitmentPattern =
 const thirdPartyRedirectPattern =
   /(https?:\/\/|www\.|telegram|whatsapp|facebook|messenger|gmail|outside support|third[- ]party)/i;
 
-const suspiciousCaseTypes = new Set([
+const suspiciousCaseTypes = new Set<AnalyzeTicketResponse["case_type"]>([
   "wrong_transfer",
   "payment_failed",
   "refund_request",
   "duplicate_payment",
   "phishing_or_social_engineering"
-] as const);
+]);
 
 const collapseWhitespace = (value: string): string => value.trim().replace(/\s+/g, " ");
 
