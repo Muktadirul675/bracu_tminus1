@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@ai-sdk/groq": "^4.0.0",
-    "@ai-sdk/openai": "^4.0.0",
     "ai": "^7.0.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

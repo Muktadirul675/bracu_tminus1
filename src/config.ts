@@ -9,8 +9,7 @@ const asPositiveInt = (value: string | undefined, fallback: number): number => {
   return parsed;
 };
 
-const provider = (process.env.AI_PROVIDER ?? "openai").toLowerCase();
-const defaultModel = provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+const defaultModel = "openai/gpt-oss-120b";
 
 const rawTimeoutMs = asPositiveInt(process.env.ANALYZE_TIMEOUT_MS, 29000);
 const analyzeTimeoutMs = Math.min(rawTimeoutMs, 30000);
@@ -18,7 +17,6 @@ const analyzeTimeoutMs = Math.min(rawTimeoutMs, 30000);
 export const config = {
   env: process.env.NODE_ENV ?? "development",
   port: asPositiveInt(process.env.PORT, 8000),
-  aiProvider: provider,
   aiModel: process.env.AI_MODEL ?? defaultModel,
   analyzeTimeoutMs,
   requireAi: process.env.REQUIRE_AI === "true"

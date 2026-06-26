@@ -6,9 +6,7 @@ Internal AI Copilot backend for digital-finance support operations (SUST CSE Car
 
 - Node.js + Express.js
 - TypeScript (ES Modules)
-- Vercel AI SDK (`ai`) with provider support:
-  - `@ai-sdk/openai`
-  - `@ai-sdk/groq`
+- Vercel AI SDK (`ai`) with Groq provider (`@ai-sdk/groq`)
 - Zod for strict request/response validation
 
 ## Required Endpoints
@@ -41,17 +39,14 @@ Create a `.env` file locally (never commit real secrets). Use `.env.example` as 
 | Variable | Required | Default | Description |
 |---|---:|---|---|
 | `PORT` | No | `8000` | API listen port |
-| `AI_PROVIDER` | No | `openai` | `openai` or `groq` |
-| `AI_MODEL` | No | provider-specific default | Model name used by selected provider |
-| `OPENAI_API_KEY` | If `AI_PROVIDER=openai` | - | OpenAI key |
-| `GROQ_API_KEY` | If `AI_PROVIDER=groq` | - | Groq key |
+| `AI_MODEL` | No | `openai/gpt-oss-120b` | Groq model name |
+| `GROQ_API_KEY` | Yes (unless fallback mode) | - | Groq API key |
 | `ANALYZE_TIMEOUT_MS` | No | `29000` | Per-ticket processing budget (clamped to 30s) |
 | `REQUIRE_AI` | No | `false` | If `true`, fail when AI key/provider unavailable instead of fallback |
 
-### Provider defaults
+### Model default
 
-- `openai` → `gpt-4o-mini`
-- `groq` → `llama-3.3-70b-versatile`
+- Groq model: `openai/gpt-oss-120b`
 
 ## Local Setup
 

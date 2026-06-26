@@ -1,6 +1,5 @@
 import { generateObject } from "ai";
 import { groq } from "@ai-sdk/groq";
-import { openai } from "@ai-sdk/openai";
 import { config } from "./config.js";
 import { runFallbackAnalysis } from "./fallback-analyzer.js";
 import { enforceSafetyAndPolicy } from "./guardrails.js";
@@ -64,23 +63,15 @@ const buildPrompt = (input: AnalyzeTicketRequest): string => {
   ].join("\n");
 };
 
-const hasConfiguredApiKey = (provider: string): boolean => {
-  if (provider === "groq") return Boolean(process.env.GROQ_API_KEY);
-  return Boolean(process.env.OPENAI_API_KEY);
-};
-
-const resolveModel = () => {
-  if (config.aiProvider === "groq") return groq(config.aiModel);
-  return openai(config.aiModel);
-};
+const hasConfiguredApiKey = (): boolean => Boolean(process.env.GROQ_API_KEY);
+const resolveModel = () => groq(config.aiModel);
 
 const timeoutErrorMessage = "Request analysis timed out";
 
 export const analyzeTicket = async (input: AnalyzeTicketRequest): Promise<AnalyzeTicketResponse> => {
-  const provider = config.aiProvider === "groq" ? "groq" : "openai";
-  if (!hasConfiguredApiKey(provider)) {
+  if (!hasConfiguredApiKey()) {
     if (config.requireAi) {
-      throw new Error("AI provider key is missing");
+      throw new Error("GROQ_API_KEY is missing");
     }
     return runFallbackAnalysis(input, "provider_key_missing");
   }
